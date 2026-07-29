@@ -451,23 +451,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupStatusItem()
-        ensureAccessibility()
         registerLoginItem()
+
+        // Try to start listening. If we can't, prompt once (the system dialog offers
+        // "Open System Settings") and then poll, so the grant takes effect without a relaunch.
         if !controller.startTap() {
-            showAccessibilityAlert()
-            startTrustPolling() // self-heal: begin listening the moment access is granted
+            let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(opts)
+            statusItem?.button?.title = "✎!"
+            startTrustPolling()
         }
     }
 
     private var trustTimer: Timer?
     private func startTrustPolling() {
         trustTimer?.invalidate()
+        // Attempt the tap directly rather than gating on AXIsProcessTrusted(): with a stale TCC
+        // entry the two can disagree, and tapCreate is the only thing that actually matters.
         trustTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] t in
             guard let self else { t.invalidate(); return }
-            guard AXIsProcessTrusted() else { return }
             if self.controller.startTap() {
                 t.invalidate()
                 self.trustTimer = nil
+                self.statusItem?.button?.title = "✎"
             }
         }
     }
@@ -578,24 +584,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func quit() { NSApp.terminate(nil) }
 
-    private func ensureAccessibility() {
-        let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(opts)
-    }
-
     private func registerLoginItem() {
         if SMAppService.mainApp.status != .enabled {
             try? SMAppService.mainApp.register()
         }
-    }
-
-    private func showAccessibilityAlert() {
-        let alert = NSAlert()
-        alert.messageText = "EditComments needs Accessibility access"
-        alert.informativeText = "Enable EditComments under System Settings ▸ Privacy & Security ▸ Accessibility, then quit and reopen the app."
-        alert.addButton(withTitle: "Open Settings")
-        alert.addButton(withTitle: "Later")
-        if alert.runModal() == .alertFirstButtonReturn { openAccessibilityPane() }
     }
 
     private func openAccessibilityPane() {

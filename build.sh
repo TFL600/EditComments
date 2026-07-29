@@ -34,14 +34,17 @@ cat <<EOF
 
 ✓ Built:  $APP
 
-First run only:
-  1. macOS will ask for Accessibility access (or the app will prompt).
-     System Settings ▸ Privacy & Security ▸ Accessibility ▸ enable EditComments.
-  2. Quit and reopen the app once after granting access.
+IMPORTANT — every rebuild changes the app's code hash, so the existing
+Accessibility grant no longer applies (the checkbox still LOOKS enabled, but
+the app is untrusted). If the hotkeys don't work, clear the stale entry:
 
-Menu bar: click ✎ for hotkeys, add categories, "Open at Login", and quit.
+    tccutil reset Accessibility co.tobias.editcomments
 
-Note: because this is ad-hoc signed, re-running build.sh can reset the
-Accessibility grant. If hotkeys stop working after a rebuild, remove and
-re-add EditComments in the Accessibility list.
+then grant access again when prompted:
+    System Settings ▸ Privacy & Security ▸ Accessibility ▸ enable EditComments
+
+No relaunch needed after granting: the app polls and starts listening within
+~2s. The menu-bar icon shows "✎!" while it lacks access, "✎" once working.
+
+Menu bar ✎: hotkeys, add/remove categories, "Open at Login", quit.
 EOF
