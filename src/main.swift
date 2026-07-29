@@ -409,6 +409,7 @@ final class Controller {
     // MARK: event tap
 
     func startTap() -> Bool {
+        if tap != nil { return true } // already listening
         let mask = (1 << CGEventType.keyDown.rawValue)
         let callback: CGEventTapCallBack = { _, type, event, refcon in
             guard let refcon else { return Unmanaged.passUnretained(event) }
@@ -454,6 +455,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         registerLoginItem()
         if !controller.startTap() {
             showAccessibilityAlert()
+            startTrustPolling() // self-heal: begin listening the moment access is granted
+        }
+    }
+
+    private var trustTimer: Timer?
+    private func startTrustPolling() {
+        trustTimer?.invalidate()
+        trustTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] t in
+            guard let self else { t.invalidate(); return }
+            guard AXIsProcessTrusted() else { return }
+            if self.controller.startTap() {
+                t.invalidate()
+                self.trustTimer = nil
+            }
         }
     }
 

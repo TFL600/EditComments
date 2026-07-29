@@ -51,8 +51,10 @@ there too (e.g. `"anchored": "cmd+shift+e"`).
 
 - **Obsidian / plain-text only** for now. It pastes markdown (`==…==%%…%%`), so it works in any text
   field. Real Microsoft Word comment objects are a future addition.
-- Because it is ad-hoc signed, re-running `build.sh` can reset the Accessibility grant. If hotkeys
-  go quiet after a rebuild, remove and re-add EditComments in the Accessibility list.
+- Because it is ad-hoc signed, re-running `build.sh` changes the app's signature, so macOS resets
+  the Accessibility grant each rebuild. If hotkeys go quiet after a rebuild: toggle EditComments off
+  and on (or remove and re-add it) in the Accessibility list. The app self-heals — it polls for the
+  grant and starts listening within ~2s, no quit/reopen needed.
 - The clipboard is saved and restored around each insertion (plain text).
 
 ## Uninstall
