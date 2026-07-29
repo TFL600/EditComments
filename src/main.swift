@@ -3,6 +3,7 @@
 //
 //   Cmd+Shift+E  copy selection, then a category key -> ==selection==%%TAG[: ]%%
 //   Cmd+Shift+G  general comment at the cursor      -> \n\n%%GENERAL: %%\n\n
+//   Cmd+Shift+R  strip every comment + highlight from the selection (accept the edits)
 //   Cmd+Shift+N  add a new category on the fly
 //
 // All hotkeys and categories live in ~/Library/Application Support/EditComments/categories.json
@@ -22,6 +23,12 @@ struct Category: Codable {
 struct Hotkeys: Codable {
     var anchored: String
     var general: String
+    // Added after the first release, so it is optional: an older categories.json without it
+    // still decodes, and falls back to the default below instead of resetting the whole config.
+    var resolve: String?
+
+    static let defaultResolve = "cmd+shift+r"
+    var resolveOrDefault: String { resolve ?? Hotkeys.defaultResolve }
 }
 
 struct Config: Codable {
@@ -30,7 +37,7 @@ struct Config: Codable {
     var categories: [Category]
 
     static let fallback = Config(
-        hotkeys: Hotkeys(anchored: "cmd+shift+e", general: "cmd+shift+g"),
+        hotkeys: Hotkeys(anchored: "cmd+shift+e", general: "cmd+shift+g", resolve: "cmd+shift+r"),
         generalTag: "GENERAL",
         categories: [
             Category(key: "d", tag: "DELETE",  needsText: false),
@@ -133,6 +140,32 @@ enum Clip {
     static var pb: NSPasteboard { .general }
     static func read() -> String? { pb.string(forType: .string) }
     static func write(_ s: String) { pb.clearContents(); pb.setString(s, forType: .string) }
+}
+
+// MARK: - Comment stripping
+
+// Turns reviewed text back into clean prose: drops every %%comment%% and unwraps every
+// ==highlight==, then tidies the whitespace the markers leave behind. This is how an edit is
+// "accepted" — select the passage, hit the resolve hotkey, and the annotations are gone.
+enum Strip {
+    static func annotations(from s: String) -> String {
+        var out = s
+        out = sub(out, #"%%[\s\S]*?%%"#, "")          // comments, including multi-line ones
+        out = sub(out, #"==([\s\S]*?)=="#, "$1")      // highlights, keeping the text inside
+        out = sub(out, #"[ \t]+([,.;:!?)\]])"#, "$1") // no space left before punctuation
+        out = sub(out, #"([(\[])[ \t]+"#, "$1")
+        out = sub(out, #"[ \t]{2,}"#, " ")
+        out = sub(out, #"[ \t]+\n"#, "\n")
+        out = sub(out, #"\n{3,}"#, "\n\n")            // a general comment on its own line
+        return out
+    }
+
+    private static func sub(_ s: String, _ pattern: String, _ template: String) -> String {
+        guard let re = try? NSRegularExpression(pattern: pattern) else { return s }
+        return re.stringByReplacingMatches(in: s,
+                                           range: NSRange(s.startIndex..., in: s),
+                                           withTemplate: template)
+    }
 }
 
 // MARK: - HUD (non-activating cheat sheet)
@@ -301,6 +334,7 @@ final class Controller {
 
     private var anchored: HotkeyCombo? { HotkeyCombo.parse(config.hotkeys.anchored) }
     private var general: HotkeyCombo? { HotkeyCombo.parse(config.hotkeys.general) }
+    private var resolve: HotkeyCombo? { HotkeyCombo.parse(config.hotkeys.resolveOrDefault) }
 
     private var tap: CFMachPort?
 
@@ -311,6 +345,7 @@ final class Controller {
         }
         if let a = anchored, a.matches(flags: flags, keyCode: keyCode) { beginAnchored(); return true }
         if let g = general, g.matches(flags: flags, keyCode: keyCode) { insertGeneral(); return true }
+        if let r = resolve, r.matches(flags: flags, keyCode: keyCode) { resolveSelection(); return true }
         return false
     }
 
@@ -324,18 +359,23 @@ final class Controller {
         cancel(); return true // swallow anything else so no stray char lands
     }
 
+    // Copy whatever is selected in the frontmost app. Must be called off the main queue.
+    private func copySelection() -> String? {
+        usleep(80_000) // let the user's Cmd+Shift lift before we send Cmd+C
+        let before = Clip.pb.changeCount
+        Keyboard.post(Keyboard.cmdC, [.maskCommand])
+        for _ in 0..<50 {
+            if Clip.pb.changeCount != before { return Clip.read() }
+            usleep(10_000)
+        }
+        return nil
+    }
+
     // Cmd+Shift+E: copy the selection, then wait for a category key.
     private func beginAnchored() {
         queue.async {
-            usleep(80_000) // let the user's Cmd+Shift lift before we send Cmd+C
             self.savedClipboard = Clip.read()
-            let before = Clip.pb.changeCount
-            Keyboard.post(Keyboard.cmdC, [.maskCommand])
-            var clip: String?
-            for _ in 0..<50 {
-                if Clip.pb.changeCount != before { clip = Clip.read(); break }
-                usleep(10_000)
-            }
+            let clip = self.copySelection()
             let text = (clip ?? "").trimmingCharacters(in: .newlines)
             DispatchQueue.main.async {
                 guard !text.isEmpty else { NSSound.beep(); return }
@@ -343,6 +383,26 @@ final class Controller {
                 self.state = .awaitingCategory
                 self.hud.show(self.config.categories)
             }
+        }
+    }
+
+    // Cmd+Shift+R: strip every comment and highlight from the selection, in place.
+    private func resolveSelection() {
+        queue.async {
+            let saved = Clip.read()
+            guard let clip = self.copySelection(), !clip.isEmpty else {
+                if let saved { Clip.write(saved) }
+                DispatchQueue.main.async { NSSound.beep() }
+                return
+            }
+            let cleaned = Strip.annotations(from: clip)
+            // Nothing to strip: leave the document untouched rather than re-pasting the selection.
+            guard cleaned != clip else {
+                if let saved { Clip.write(saved) }
+                DispatchQueue.main.async { NSSound.beep() }
+                return
+            }
+            self.pasteNow(cleaned, moveLeft: 0, restoreTo: saved)
         }
     }
 
@@ -491,6 +551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let hk = controller.config.hotkeys
         menu.addItem(withTitle: "Anchored comment:  \(pretty(hk.anchored))", action: nil, keyEquivalent: "")
         menu.addItem(withTitle: "General comment:   \(pretty(hk.general))", action: nil, keyEquivalent: "")
+        menu.addItem(withTitle: "Accept / strip comments:  \(pretty(hk.resolveOrDefault))", action: nil, keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: "Add category…", action: #selector(addCategory), keyEquivalent: "")
 

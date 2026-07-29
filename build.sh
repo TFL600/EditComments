@@ -27,6 +27,11 @@ codesign --force --deep -s - "$APP"
 pkill -x "$BIN" 2>/dev/null || true
 sleep 0.3
 
+# Every rebuild changes the code hash, so the old Accessibility grant is dead even though the
+# checkbox still looks ticked. Clear it here so the app re-prompts instead of failing silently.
+echo "▸ Clearing the stale Accessibility grant…"
+tccutil reset Accessibility co.tobias.editcomments 2>/dev/null || true
+
 echo "▸ Launching…"
 open "$APP"
 
@@ -34,13 +39,13 @@ cat <<EOF
 
 ✓ Built:  $APP
 
-IMPORTANT — every rebuild changes the app's code hash, so the existing
-Accessibility grant no longer applies (the checkbox still LOOKS enabled, but
-the app is untrusted). If the hotkeys don't work, clear the stale entry:
+IMPORTANT — every rebuild changes the app's code hash, so the old Accessibility
+grant is dead (the checkbox still LOOKS enabled, but the app is untrusted).
+This script has already cleared it with:
 
     tccutil reset Accessibility co.tobias.editcomments
 
-then grant access again when prompted:
+so all you need to do is grant access again:
     System Settings ▸ Privacy & Security ▸ Accessibility ▸ enable EditComments
 
 No relaunch needed after granting: the app polls and starts listening within

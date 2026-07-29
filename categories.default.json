@@ -1,7 +1,8 @@
 {
   "hotkeys" : {
     "anchored" : "cmd+shift+e",
-    "general" : "cmd+shift+g"
+    "general" : "cmd+shift+g",
+    "resolve" : "cmd+shift+r"
   },
   "generalTag" : "GENERAL",
   "categories" : [
