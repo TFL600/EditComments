@@ -1,0 +1,13 @@
+{
+  "hotkeys" : {
+    "anchored" : "cmd+shift+e",
+    "general" : "cmd+shift+g"
+  },
+  "generalTag" : "GENERAL",
+  "categories" : [
+    { "key" : "d", "tag" : "DELETE",  "needsText" : false },
+    { "key" : "s", "tag" : "SHORTEN", "needsText" : false },
+    { "key" : "f", "tag" : "FIX",     "needsText" : true },
+    { "key" : "a", "tag" : "ADD",     "needsText" : true }
+  ]
+}
