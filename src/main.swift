@@ -360,11 +360,14 @@ final class Controller {
     }
 
     // Copy whatever is selected in the frontmost app. Must be called off the main queue.
+    // Obsidian renders a multi-paragraph selection to HTML before it fills the pasteboard, which
+    // can take well over half a second, so wait up to 3s. The old 0.5s cap gave up first, beeped,
+    // and the copy landed afterwards: nothing stripped, raw selection left on the clipboard.
     private func copySelection() -> String? {
         usleep(80_000) // let the user's Cmd+Shift lift before we send Cmd+C
         let before = Clip.pb.changeCount
         Keyboard.post(Keyboard.cmdC, [.maskCommand])
-        for _ in 0..<50 {
+        for _ in 0..<300 {
             if Clip.pb.changeCount != before { return Clip.read() }
             usleep(10_000)
         }
@@ -436,7 +439,9 @@ final class Controller {
             usleep(130_000)
             for _ in 0..<moveLeft { Keyboard.post(Keyboard.left); usleep(8_000) }
         }
-        usleep(150_000)
+        // Restoring too early makes a slow paste read the old clipboard instead, and a long
+        // paste is exactly the slow case, so scale the wait with the length.
+        usleep(useconds_t(min(1_000_000, 150_000 + text.count * 100)))
         if let saved { Clip.write(saved) }
     }
 
