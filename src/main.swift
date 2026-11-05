@@ -178,14 +178,21 @@ final class HUD {
         var chips = categories.map { "\($0.key.uppercased())  \($0.tag.lowercased())" }
         chips.append("N  new")
         chips.append("esc  cancel")
-        let text = chips.joined(separator: "     ")
+        let font = NSFont.monospacedSystemFont(ofSize: 17, weight: .semibold)
+        let pad: CGFloat = 16
+        let margin: CGFloat = 24   // min gap between HUD and screen edge
+        let sf = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+
+        // Wrap chips onto extra lines (never mid-chip) so the HUD fits narrow/vertical screens.
+        let text = HUD.wrap(chips, font: font, maxWidth: sf.width - 2 * (margin + pad))
 
         let label = NSTextField(labelWithString: text)
-        label.font = .monospacedSystemFont(ofSize: 17, weight: .semibold)
+        label.font = font
         label.textColor = .black
+        label.alignment = .center
         label.sizeToFit()
 
-        let pad: CGFloat = 16
         let w = label.frame.width + pad * 2
         let h = label.frame.height + pad * 2
 
@@ -213,12 +220,43 @@ final class HUD {
         bg.addSubview(label)
         p.contentView = bg
 
-        if let screen = NSScreen.main {
-            let sf = screen.visibleFrame
-            p.setFrameOrigin(NSPoint(x: sf.midX - w / 2, y: sf.minY + 90))
-        }
+        p.setFrameOrigin(NSPoint(x: max(sf.minX + margin, sf.midX - w / 2), y: sf.minY + 90))
         p.orderFrontRegardless()
         panel = p
+    }
+
+    /// Join chips with a wide gap, wrapping onto new lines (never mid-chip) to stay under
+    /// `maxWidth`. Lines are then balanced so the last one isn't a lone straggler.
+    static func wrap(_ chips: [String], font: NSFont, maxWidth: CGFloat) -> String {
+        let sep = "     "
+        let attrs: [NSAttributedString.Key: Any] = [.font: font]
+        func width(_ s: String) -> CGFloat { (s as NSString).size(withAttributes: attrs).width }
+        func pack(_ limit: CGFloat) -> [String] {
+            var lines: [String] = []
+            var cur = ""
+            for chip in chips {
+                let cand = cur.isEmpty ? chip : cur + sep + chip
+                if !cur.isEmpty && width(cand) > limit {
+                    lines.append(cur)
+                    cur = chip
+                } else {
+                    cur = cand
+                }
+            }
+            if !cur.isEmpty { lines.append(cur) }
+            return lines
+        }
+        var lines = pack(maxWidth)
+        if lines.count > 1 {
+            // Narrowest limit that still needs no more lines than the greedy pass.
+            var limit = width(chips.joined(separator: sep)) / CGFloat(lines.count)
+            while limit < maxWidth {
+                let tryLines = pack(limit)
+                if tryLines.count <= lines.count { lines = tryLines; break }
+                limit += 10
+            }
+        }
+        return lines.joined(separator: "\n")
     }
 
     func hide() {
